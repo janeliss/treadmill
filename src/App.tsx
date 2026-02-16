@@ -849,7 +849,6 @@ html, body, #root { height: 100%; overflow: hidden; }
   transform-origin: center bottom;
   filter: drop-shadow(0 3px 2px rgba(0,0,0,0.2));
   position: relative; z-index: 2;
-  mix-blend-mode: multiply;
 }
 .mascot-shadow {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
@@ -966,7 +965,6 @@ html, body, #root { height: 100%; overflow: hidden; }
   width: 40px; height: 40px;
   object-fit: cover;
   image-rendering: pixelated;
-  mix-blend-mode: multiply;
 }
 .ui-remaining {
   background: ${C.uiBg};
@@ -1093,7 +1091,6 @@ html, body, #root { height: 100%; overflow: hidden; }
   image-rendering: pixelated;
   filter: drop-shadow(0 4px 4px rgba(0,0,0,0.2));
   animation: pickerBob 2s ease-in-out infinite;
-  mix-blend-mode: multiply;
 }
 @keyframes pickerBob {
   0%, 100% { transform: translateY(0); }
