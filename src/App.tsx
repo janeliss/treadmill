@@ -28,6 +28,7 @@ interface DialogueState {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const SESSION_GOAL = 1200;
+const MAP_H = 3200;
 
 const WALK_MESSAGES = [
   "WOOF! Look at those flowers!",
@@ -53,23 +54,55 @@ const MILESTONES: Milestone[] = [
   { seconds: 1200, label: '20 min', icon: '👑', dialogue: "We did it! Champion walkers! WOOF WOOF!" },
 ];
 
-// Pastel pixel palette
+// Winding path waypoints: x = % of width, y = % of map height
+// progress 0 → bottom (start), progress 1 → top (finish)
+const WAYPOINTS = [
+  { x: 50, y: 94 },
+  { x: 78, y: 82 },
+  { x: 22, y: 70 },
+  { x: 76, y: 58 },
+  { x: 24, y: 46 },
+  { x: 74, y: 34 },
+  { x: 26, y: 22 },
+  { x: 50, y: 8 },
+];
+
+// Scenery decorations scattered on the map
+const DECO = [
+  { t: 'tree', x: 7, y: 92 }, { t: 'tree', x: 91, y: 87 },
+  { t: 'tree', x: 10, y: 74 }, { t: 'tree', x: 89, y: 66 },
+  { t: 'tree', x: 8, y: 54 }, { t: 'tree', x: 92, y: 48 },
+  { t: 'tree', x: 12, y: 36 }, { t: 'tree', x: 88, y: 28 },
+  { t: 'tree', x: 6, y: 16 }, { t: 'tree', x: 93, y: 10 },
+  { t: 'fl-p', x: 16, y: 90 }, { t: 'fl-b', x: 84, y: 84 },
+  { t: 'fl-y', x: 4, y: 71 }, { t: 'fl-p', x: 96, y: 64 },
+  { t: 'fl-b', x: 18, y: 52 }, { t: 'fl-y', x: 82, y: 44 },
+  { t: 'fl-p', x: 6, y: 32 }, { t: 'fl-b', x: 94, y: 24 },
+  { t: 'fl-y', x: 14, y: 14 }, { t: 'fl-p', x: 86, y: 7 },
+  { t: 'shr', x: 93, y: 79 }, { t: 'shr', x: 7, y: 59 },
+  { t: 'shr', x: 91, y: 39 }, { t: 'shr', x: 9, y: 19 },
+  { t: 'bush', x: 5, y: 84 }, { t: 'bush', x: 95, y: 70 },
+  { t: 'bush', x: 3, y: 50 }, { t: 'bush', x: 97, y: 30 },
+  { t: 'bush', x: 8, y: 9 },
+  { t: 'rock', x: 14, y: 96 }, { t: 'rock', x: 86, y: 76 },
+  { t: 'rock', x: 12, y: 42 }, { t: 'rock', x: 88, y: 18 },
+];
+
+// Palette
 const C = {
-  skyTop: '#c8b8d8',
-  skyMid: '#dcc8d8',
-  skyBot: '#e8d8c8',
-  hillFar: '#98b87a',
-  hillNear: '#7da860',
-  grass: '#6b9850',
-  grassDark: '#5a8742',
-  path: '#d8c8a0',
-  pathDark: '#c4b48c',
-  pathEdge: '#b0a078',
-  dialogBg: '#f5ece0',
-  dialogBorder: '#6a5878',
-  dialogText: '#4a3a5a',
-  uiBg: 'rgba(90,72,106,0.85)',
+  pathBorder: '#6a5040',
+  pathFill: '#c4a878',
+  pathDash: 'rgba(255,255,255,0.15)',
+  skyBlue: '#a8d8ea',
+  skyLight: '#c8e8f0',
+  grassLight: '#78b858',
+  grassMid: '#68a848',
+  grassDark: '#589838',
+  uiBg: 'rgba(60,48,36,0.88)',
   uiText: '#f5ece0',
+  dialogBg: '#f5ece0',
+  dialogBorder: '#5a4838',
+  dialogText: '#3a2a1a',
   accent: '#e8a0b0',
   accentAlt: '#a0c8e0',
   flowerPink: '#f0a0b8',
@@ -77,8 +110,13 @@ const C = {
   flowerYellow: '#f0e080',
   mushroomCap: '#c87878',
   mushroom: '#e0a0a0',
-  moon: '#f5f0d8',
-  star: '#f5e8c0',
+  treeTrunk: '#8a6a48',
+  treeLeaf: '#4a8a38',
+  treeLeafLight: '#68a850',
+  bushColor: '#5a9a48',
+  bushLight: '#70aa58',
+  rockColor: '#a0a098',
+  rockDark: '#888880',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -93,106 +131,90 @@ function randInt(a: number, b: number): number {
   return Math.floor(Math.random() * (b - a + 1)) + a;
 }
 
+/** Interpolate position on the winding path given progress (0→1) */
+function pathLerp(progress: number): { x: number; y: number } {
+  const p = Math.max(0, Math.min(1, progress));
+  const seg = p * (WAYPOINTS.length - 1);
+  const i = Math.min(Math.floor(seg), WAYPOINTS.length - 2);
+  const t = seg - i;
+  return {
+    x: WAYPOINTS[i].x + (WAYPOINTS[i + 1].x - WAYPOINTS[i].x) * t,
+    y: WAYPOINTS[i].y + (WAYPOINTS[i + 1].y - WAYPOINTS[i].y) * t,
+  };
+}
+
+/** Build SVG cubic bezier path string for the winding road */
+function buildSvgPath(): string {
+  const w = 400, h = MAP_H;
+  const pts = WAYPOINTS.map(wp => ({ x: (wp.x / 100) * w, y: (wp.y / 100) * h }));
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const c = pts[i], n = pts[i + 1];
+    const my = (c.y + n.y) / 2;
+    d += ` C ${c.x} ${my}, ${n.x} ${my}, ${n.x} ${n.y}`;
+  }
+  return d;
+}
+
+const PATH_D = buildSvgPath();
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// MASCOT EXPRESSION COMPONENTS
-// All use the real PNG assets with GSAP-powered animations.
-// Base = MASCOT1.png (Tamagotchi device), Expression = the pixel puppy.
-// Expression overlay is layered via absolute positioning + z-index.
-// Only transform + opacity for GPU-accelerated performance.
+// MASCOT EXPRESSION COMPONENTS (GSAP-animated, using real PNG assets)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Idle state — gentle breathing bob, relaxed puppy */
 function MascotIdle({ onTap }: { onTap: () => void }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
   const charRef = useRef<HTMLImageElement>(null);
-
   useEffect(() => {
     if (!charRef.current) return;
     const tl = gsap.timeline({ repeat: -1, yoyo: true });
-    tl.to(charRef.current, {
-      y: -2, scaleY: 1.02, duration: 1.4, ease: 'sine.inOut',
-    });
+    tl.to(charRef.current, { y: -3, scaleY: 1.02, duration: 1.4, ease: 'sine.inOut' });
     return () => { tl.kill(); };
   }, []);
-
   return (
-    <div ref={wrapRef} className="mascot-container" onClick={onTap}>
+    <div className="mascot-container" onClick={onTap}>
       <div className="mascot-shadow" />
       <img ref={charRef} src={mascotExpression} alt="Loafy idle" className="mascot-char" draggable={false} />
     </div>
   );
 }
 
-/** Happy state — bouncy celebration */
 function MascotHappy({ onTap }: { onTap: () => void }) {
   const charRef = useRef<HTMLImageElement>(null);
-
   useEffect(() => {
     if (!charRef.current) return;
     const tl = gsap.timeline({ repeat: -1 });
-    tl.to(charRef.current, {
-      y: -10, scaleX: 1.08, scaleY: 0.94, rotation: -5,
-      duration: 0.25, ease: 'power2.out',
-    })
-    .to(charRef.current, {
-      y: 0, scaleX: 0.96, scaleY: 1.06, rotation: 5,
-      duration: 0.25, ease: 'power2.in',
-    })
-    .to(charRef.current, {
-      y: -8, scaleX: 1.05, scaleY: 0.96, rotation: -3,
-      duration: 0.25, ease: 'power2.out',
-    })
-    .to(charRef.current, {
-      y: 0, scaleX: 1, scaleY: 1, rotation: 0,
-      duration: 0.3, ease: 'power2.in',
-    });
+    tl.to(charRef.current, { y: -14, scaleX: 1.08, scaleY: 0.94, rotation: -5, duration: 0.25, ease: 'power2.out' })
+      .to(charRef.current, { y: 0, scaleX: 0.96, scaleY: 1.06, rotation: 5, duration: 0.25, ease: 'power2.in' })
+      .to(charRef.current, { y: -10, scaleX: 1.05, scaleY: 0.96, rotation: -3, duration: 0.25, ease: 'power2.out' })
+      .to(charRef.current, { y: 0, scaleX: 1, scaleY: 1, rotation: 0, duration: 0.3, ease: 'power2.in' });
     return () => { tl.kill(); };
   }, []);
-
   return (
     <div className="mascot-container" onClick={onTap}>
       <div className="mascot-shadow" />
       <img ref={charRef} src={mascotExpression} alt="Loafy happy" className="mascot-char" draggable={false} />
-      {/* WOOF speech bubble overlay */}
       <div className="mascot-woof-bubble">WOOF!</div>
     </div>
   );
 }
 
-/** SmellBread state — sniffing animation, head tilts, used when hitting milestones */
 function MascotSmellBread({ onTap }: { onTap: () => void }) {
   const charRef = useRef<HTMLImageElement>(null);
-
   useEffect(() => {
     if (!charRef.current) return;
     const tl = gsap.timeline({ repeat: -1 });
-    // Sniffing: head bob forward repeatedly
-    tl.to(charRef.current, {
-      y: -3, rotation: 8, scaleX: 1.03, duration: 0.3, ease: 'power1.out',
-    })
-    .to(charRef.current, {
-      y: 0, rotation: 0, scaleX: 1, duration: 0.2, ease: 'power1.in',
-    })
-    .to(charRef.current, {
-      y: -4, rotation: -6, scaleX: 1.02, duration: 0.3, ease: 'power1.out',
-    })
-    .to(charRef.current, {
-      y: 0, rotation: 0, scaleX: 1, duration: 0.2, ease: 'power1.in',
-    })
-    .to(charRef.current, {
-      y: -2, rotation: 4, duration: 0.25, ease: 'power1.out',
-    })
-    .to(charRef.current, {
-      y: 0, rotation: 0, duration: 0.4, ease: 'power2.inOut',
-    });
+    tl.to(charRef.current, { y: -4, rotation: 8, scaleX: 1.03, duration: 0.3, ease: 'power1.out' })
+      .to(charRef.current, { y: 0, rotation: 0, scaleX: 1, duration: 0.2, ease: 'power1.in' })
+      .to(charRef.current, { y: -5, rotation: -6, scaleX: 1.02, duration: 0.3, ease: 'power1.out' })
+      .to(charRef.current, { y: 0, rotation: 0, scaleX: 1, duration: 0.2, ease: 'power1.in' })
+      .to(charRef.current, { y: -3, rotation: 4, duration: 0.25, ease: 'power1.out' })
+      .to(charRef.current, { y: 0, rotation: 0, duration: 0.4, ease: 'power2.inOut' });
     return () => { tl.kill(); };
   }, []);
-
   return (
     <div className="mascot-container" onClick={onTap}>
       <div className="mascot-shadow" />
       <img ref={charRef} src={mascotExpression} alt="Loafy sniffing" className="mascot-char" draggable={false} />
-      {/* Sniff particles */}
       <div className="mascot-sniff-particles">
         <span className="sniff-p sniff-p1">~</span>
         <span className="sniff-p sniff-p2">~</span>
@@ -202,46 +224,28 @@ function MascotSmellBread({ onTap }: { onTap: () => void }) {
   );
 }
 
-/** Blink state — quick eye squish, then returns to idle */
 function MascotBlink({ onTap }: { onTap: () => void }) {
   const charRef = useRef<HTMLImageElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    if (!charRef.current || !overlayRef.current) return;
+    if (!charRef.current) return;
     const tl = gsap.timeline({ repeat: -1, repeatDelay: 3 });
-    // Blink = quick scaleY squish on the whole character
-    tl.to(charRef.current, {
-      scaleY: 0.92, y: 2, duration: 0.08, ease: 'power2.in',
-    })
-    .to(charRef.current, {
-      scaleY: 1, y: 0, duration: 0.1, ease: 'power2.out',
-    })
-    // Double blink
-    .to(charRef.current, {
-      scaleY: 0.92, y: 2, duration: 0.08, ease: 'power2.in',
-    }, '+=0.12')
-    .to(charRef.current, {
-      scaleY: 1, y: 0, duration: 0.1, ease: 'power2.out',
-    })
-    // Gentle idle bob in between
-    .to(charRef.current, {
-      y: -1.5, duration: 1.2, ease: 'sine.inOut', yoyo: true, repeat: 1,
-    });
+    tl.to(charRef.current, { scaleY: 0.92, y: 2, duration: 0.08, ease: 'power2.in' })
+      .to(charRef.current, { scaleY: 1, y: 0, duration: 0.1, ease: 'power2.out' })
+      .to(charRef.current, { scaleY: 0.92, y: 2, duration: 0.08, ease: 'power2.in' }, '+=0.12')
+      .to(charRef.current, { scaleY: 1, y: 0, duration: 0.1, ease: 'power2.out' })
+      .to(charRef.current, { y: -2, duration: 1.2, ease: 'sine.inOut', yoyo: true, repeat: 1 });
     return () => { tl.kill(); };
   }, []);
-
   return (
     <div className="mascot-container" onClick={onTap}>
       <div className="mascot-shadow" />
       <img ref={charRef} src={mascotExpression} alt="Loafy blink" className="mascot-char" draggable={false} />
-      <div ref={overlayRef} className="mascot-blink-overlay" />
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MASCOT SWITCHER — picks expression component based on state
+// MASCOT SWITCHER — picks expression component, adds walk bob
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function LoafyMascot({ expression, running, onTap }: {
@@ -250,31 +254,23 @@ function LoafyMascot({ expression, running, onTap }: {
   onTap: () => void;
 }) {
   const walkRef = useRef<HTMLDivElement>(null);
-
-  // Walking bob driven by GSAP when running
   useEffect(() => {
     if (!walkRef.current) return;
     if (running) {
       const tl = gsap.timeline({ repeat: -1 });
-      tl.to(walkRef.current, {
-        y: -4, duration: 0.2, ease: 'steps(2)',
-      })
-      .to(walkRef.current, {
-        y: 0, duration: 0.2, ease: 'steps(2)',
-      });
+      tl.to(walkRef.current, { y: -5, duration: 0.2, ease: 'steps(2)' })
+        .to(walkRef.current, { y: 0, duration: 0.2, ease: 'steps(2)' });
       return () => { tl.kill(); };
     } else {
       gsap.to(walkRef.current, { y: 0, duration: 0.3 });
     }
   }, [running]);
-
   return (
     <div ref={walkRef} className="loafy-walk-wrapper">
       {expression === 'idle' && <MascotIdle onTap={onTap} />}
       {expression === 'happy' && <MascotHappy onTap={onTap} />}
       {expression === 'smell' && <MascotSmellBread onTap={onTap} />}
       {expression === 'blink' && <MascotBlink onTap={onTap} />}
-      {/* Dust particles when walking */}
       {running && (
         <div className="mascot-dust">
           <div className="m-dust m-dust-1" />
@@ -289,6 +285,8 @@ function LoafyMascot({ expression, running, onTap }: {
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const TIME_PRESETS = [5, 10, 15, 20, 30, 45, 60];
+
 export default function App() {
   const [seconds, setSeconds] = useState(0);
   const [running, setRunning] = useState(false);
@@ -296,6 +294,9 @@ export default function App() {
   const [triggeredMs, setTriggeredMs] = useState<Set<number>>(() => new Set());
   const [expression, setExpression] = useState<MascotExpression>('idle');
   const [evolveFlash, setEvolveFlash] = useState(false);
+  const [targetMinutes, setTargetMinutes] = useState<number | null>(null);
+  const [customInput, setCustomInput] = useState('');
+  const [goalReached, setGoalReached] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dialogueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -304,18 +305,23 @@ export default function App() {
   const expressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blinkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const progress = Math.min(seconds / SESSION_GOAL, 1);
+  const sessionGoal = targetMinutes ? targetMinutes * 60 : SESSION_GOAL;
+  const progress = Math.min(seconds / sessionGoal, 1);
 
-  // ── Expression management ──────────────────────────────────────────────────
+  // ── Camera & mascot position ──────────────────────────────────────────────
+  const mascotPos = pathLerp(progress);
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 700;
+  const maxScroll = MAP_H - vh;
+  const mascotAbsY = (mascotPos.y / 100) * MAP_H;
+  const cameraY = Math.max(0, Math.min(maxScroll, mascotAbsY - vh * 0.45));
+
+  // ── Expression management ─────────────────────────────────────────────────
   const setTempExpression = useCallback((expr: MascotExpression, duration = 3000) => {
     setExpression(expr);
     if (expressionTimerRef.current) clearTimeout(expressionTimerRef.current);
-    expressionTimerRef.current = setTimeout(() => {
-      setExpression('idle');
-    }, duration);
+    expressionTimerRef.current = setTimeout(() => { setExpression('idle'); }, duration);
   }, []);
 
-  // Periodic blink when idle
   useEffect(() => {
     if (!running && expression === 'idle') {
       blinkIntervalRef.current = setInterval(() => {
@@ -326,7 +332,7 @@ export default function App() {
     if (blinkIntervalRef.current) clearInterval(blinkIntervalRef.current);
   }, [running, expression, setTempExpression]);
 
-  // ── Dialogue system ────────────────────────────────────────────────────────
+  // ── Dialogue system ───────────────────────────────────────────────────────
   const showDialogue = useCallback((text: string, speaker = '', duration = 4500) => {
     const id = ++dialogueIdRef.current;
     setDialogue({ text, visible: true, id, speaker });
@@ -336,18 +342,17 @@ export default function App() {
     }, duration);
   }, []);
 
-  // ── Walking dialogue scheduler ─────────────────────────────────────────────
+  // ── Walking dialogue scheduler ────────────────────────────────────────────
   const scheduleWalkMsg = useCallback(() => {
     const delay = randInt(20, 45) * 1000;
     walkMsgTimerRef.current = setTimeout(() => {
       showDialogue(WALK_MESSAGES[Math.floor(Math.random() * WALK_MESSAGES.length)], 'Loafy');
-      // Random chance to show happy expression during walk messages
       if (Math.random() > 0.5) setTempExpression('happy', 2500);
       scheduleWalkMsg();
     }, delay);
   }, [showDialogue, setTempExpression]);
 
-  // ── Timer controls ─────────────────────────────────────────────────────────
+  // ── Timer controls ────────────────────────────────────────────────────────
   const start = useCallback(() => {
     if (running) return;
     setRunning(true);
@@ -373,25 +378,35 @@ export default function App() {
     setTriggeredMs(new Set());
     setExpression('idle');
     setEvolveFlash(false);
+    setGoalReached(false);
+    setTargetMinutes(null);
+    setCustomInput('');
     showDialogue("A new adventure awaits!", 'Loafy');
   }, [stop, showDialogue]);
 
-  // ── Milestone checker ("oven opens" = milestone reached → smell expression) ─
+  // ── Milestone checker ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!running) return;
     for (const ms of MILESTONES) {
       if (seconds >= ms.seconds && !triggeredMs.has(ms.seconds)) {
         setTriggeredMs(p => new Set(p).add(ms.seconds));
-        // "Oven opens" → switch to smell bread expression
         setTempExpression('smell', 5000);
         setEvolveFlash(true);
         showDialogue(ms.dialogue, 'Loafy', 6000);
         setTimeout(() => setEvolveFlash(false), 2000);
       }
     }
-  }, [seconds, running, triggeredMs, showDialogue, setTempExpression]);
+    if (seconds >= sessionGoal && !goalReached) {
+      setGoalReached(true);
+      stop();
+      setTempExpression('happy', 8000);
+      setEvolveFlash(true);
+      showDialogue("WOOF WOOF!! We did it!! Best walk EVER!", 'Loafy', 8000);
+      setTimeout(() => setEvolveFlash(false), 3000);
+    }
+  }, [seconds, running, triggeredMs, showDialogue, setTempExpression, sessionGoal, goalReached, stop]);
 
-  // ── Cleanup ────────────────────────────────────────────────────────────────
+  // ── Cleanup ───────────────────────────────────────────────────────────────
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (dialogueTimerRef.current) clearTimeout(dialogueTimerRef.current);
@@ -400,160 +415,204 @@ export default function App() {
     if (blinkIntervalRef.current) clearInterval(blinkIntervalRef.current);
   }, []);
 
-  // ── Mascot tap handler ─────────────────────────────────────────────────────
   const handleMascotTap = useCallback(() => {
     setTempExpression('happy', 2000);
     showDialogue('WOOF! *tail wag*', 'Loafy', 2500);
   }, [setTempExpression, showDialogue]);
 
+  const handlePickTime = (mins: number) => {
+    setTargetMinutes(mins);
+    setGoalReached(false);
+    showDialogue(`${mins} minutes? Let's do this! WOOF!`, 'Loafy');
+    setTempExpression('happy', 2000);
+  };
+
+  const handleCustomSubmit = () => {
+    const mins = parseInt(customInput, 10);
+    if (mins > 0 && mins <= 180) handlePickTime(mins);
+  };
+
+  const remaining = Math.max(sessionGoal - seconds, 0);
+  const activeMilestones = MILESTONES.filter(ms => ms.seconds <= sessionGoal);
+
   // ═════════════════════════════════════════════════════════════════════════════
   // RENDER
   // ═════════════════════════════════════════════════════════════════════════════
+
+  // ── TIME PICKER SCREEN ──
+  if (targetMinutes === null) {
+    return (
+      <div className="app">
+        <style>{cssText}</style>
+        <div className="picker-bg">
+          <div className="picker-panel">
+            <div className="picker-mascot">
+              <img src={mascotExpression} alt="Loafy" className="picker-mascot-img" draggable={false} />
+            </div>
+            <div className="picker-title">How long will you walk?</div>
+            <div className="picker-grid">
+              {TIME_PRESETS.map(m => (
+                <button key={m} className="picker-btn" onClick={() => handlePickTime(m)}>
+                  {m}<span className="picker-btn-unit">min</span>
+                </button>
+              ))}
+            </div>
+            <div className="picker-custom">
+              <input
+                className="picker-input"
+                type="number" min="1" max="180"
+                placeholder="Custom"
+                value={customInput}
+                onChange={e => setCustomInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCustomSubmit()}
+              />
+              <button className="picker-btn picker-btn-go" onClick={handleCustomSubmit}>Go!</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── GOAL REACHED SCREEN ──
+  if (goalReached) {
+    return (
+      <div className="app">
+        <style>{cssText}</style>
+        <div className="goal-bg">
+          <div className="goal-panel">
+            <div className="goal-stars-row">
+              {[...Array(5)].map((_, i) => (
+                <span key={i} className="goal-star" style={{ animationDelay: `${i * 0.12}s` }}>&#9733;</span>
+              ))}
+            </div>
+            <div className="goal-title">Walk Complete!</div>
+            <div className="goal-time">{fmt(seconds)}</div>
+            <div className="goal-sub">{targetMinutes} minute goal crushed!</div>
+            <div className="goal-mascot">
+              <LoafyMascot expression="happy" running={false} onTap={handleMascotTap} />
+            </div>
+            <button className="ctrl-btn ctrl-btn-start" onClick={reset}>
+              &#8634; New Walk
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MAIN ADVENTURE MAP VIEW ──
   return (
-    <div className={`app ${running ? 'running' : 'paused'}`}>
+    <div className="app">
       <style>{cssText}</style>
 
-      {/* ══════ SKY ══════ */}
-      <div className="sky">
-        <div className="px-stars">
-          {[...Array(18)].map((_, i) => (
-            <div key={i} className="px-star" style={{
-              left: `${(i * 5.7) % 96}%`,
-              top: `${(i * 3.9) % 40}%`,
-              animationDelay: `${(i * 1.1) % 4}s`,
-              width: [3, 2, 3, 2][i % 4],
-              height: [3, 2, 3, 2][i % 4],
-            }} />
+      <div className="map-viewport">
+        <div className="adventure-map" style={{ transform: `translateY(${-cameraY}px)` }}>
+          {/* Background gradient (sky → grass) */}
+          <div className="map-bg" />
+
+          {/* Clouds near top of map */}
+          <div className="map-cloud mc-1" />
+          <div className="map-cloud mc-2" />
+          <div className="map-cloud mc-3" />
+
+          {/* SVG winding path */}
+          <svg className="path-svg" viewBox={`0 0 400 ${MAP_H}`} preserveAspectRatio="none">
+            <path d={PATH_D} fill="none" stroke={C.pathBorder} strokeWidth="62"
+              strokeLinecap="round" strokeLinejoin="round" />
+            <path d={PATH_D} fill="none" stroke={C.pathFill} strokeWidth="48"
+              strokeLinecap="round" strokeLinejoin="round" />
+            <path d={PATH_D} fill="none" stroke={C.pathDash} strokeWidth="3"
+              strokeDasharray="10 14" strokeLinecap="round" />
+          </svg>
+
+          {/* Scenery decorations */}
+          {DECO.map((d, i) => (
+            <div key={i} className={`deco deco-${d.t}`}
+              style={{ left: `${d.x}%`, top: `${d.y}%` }} />
           ))}
-        </div>
-        <div className="px-moon"><div className="px-moon-dark" /></div>
-        <div className="px-clouds">
-          <div className="px-cloud px-cloud-1" />
-          <div className="px-cloud px-cloud-2" />
-          <div className="px-cloud px-cloud-3" />
-        </div>
-      </div>
 
-      {/* ══════ HILLS ══════ */}
-      <div className="hills-far"><div className="hills-far-strip" /></div>
-      <div className="hills-near"><div className="hills-near-strip" /></div>
-
-      {/* ══════ GROUND + SCENERY ══════ */}
-      <div className="ground-layer">
-        <div className="grass-scroll"><div className="grass-texture" /></div>
-        <div className="scenery-scroll">
-          <div className="scenery-strip">
-            <div className="px-flower px-fl-pink" style={{ left: '5%', bottom: 14 }} />
-            <div className="px-flower px-fl-blue" style={{ left: '18%', bottom: 10 }} />
-            <div className="px-flower px-fl-yellow" style={{ left: '30%', bottom: 16 }} />
-            <div className="px-flower px-fl-pink" style={{ left: '44%', bottom: 8 }} />
-            <div className="px-flower px-fl-blue" style={{ left: '58%', bottom: 14 }} />
-            <div className="px-flower px-fl-yellow" style={{ left: '70%', bottom: 12 }} />
-            <div className="px-flower px-fl-pink" style={{ left: '85%', bottom: 10 }} />
-            <div className="px-flower px-fl-blue" style={{ left: '95%', bottom: 16 }} />
-            <div className="px-mushroom" style={{ left: '12%', bottom: 6 }} />
-            <div className="px-mushroom" style={{ left: '52%', bottom: 8 }} />
-            <div className="px-mushroom" style={{ left: '78%', bottom: 6 }} />
-            <div className="px-grass-tuft" style={{ left: '8%', bottom: 2 }} />
-            <div className="px-grass-tuft" style={{ left: '25%', bottom: 2 }} />
-            <div className="px-grass-tuft" style={{ left: '40%', bottom: 2 }} />
-            <div className="px-grass-tuft" style={{ left: '62%', bottom: 2 }} />
-            <div className="px-grass-tuft" style={{ left: '88%', bottom: 2 }} />
+          {/* Start marker */}
+          <div className="path-marker path-start"
+            style={{ left: `${WAYPOINTS[0].x}%`, top: `${WAYPOINTS[0].y}%` }}>
+            &#128062; Start
           </div>
-        </div>
-        <div className="path-area">
-          <div className="path-scroll"><div className="path-texture" /></div>
-          <div className="path-dashes-scroll"><div className="path-dashes" /></div>
-        </div>
-        <div className="scenery-bottom-scroll">
-          <div className="scenery-strip">
-            <div className="px-flower px-fl-yellow" style={{ left: '10%', bottom: 6 }} />
-            <div className="px-flower px-fl-pink" style={{ left: '35%', bottom: 8 }} />
-            <div className="px-grass-tuft" style={{ left: '22%', bottom: 2 }} />
-            <div className="px-flower px-fl-blue" style={{ left: '55%', bottom: 6 }} />
-            <div className="px-mushroom" style={{ left: '75%', bottom: 4 }} />
-            <div className="px-flower px-fl-pink" style={{ left: '90%', bottom: 8 }} />
-            <div className="px-grass-tuft" style={{ left: '48%', bottom: 2 }} />
-            <div className="px-grass-tuft" style={{ left: '82%', bottom: 2 }} />
+
+          {/* Finish marker */}
+          <div className="path-marker path-finish"
+            style={{ left: `${WAYPOINTS[WAYPOINTS.length - 1].x}%`, top: `${WAYPOINTS[WAYPOINTS.length - 1].y}%` }}>
+            &#127937; Finish
+          </div>
+
+          {/* Milestone markers on the path */}
+          {activeMilestones.map(ms => {
+            const p = Math.min(ms.seconds / sessionGoal, 1);
+            const pos = pathLerp(p);
+            const hit = triggeredMs.has(ms.seconds);
+            return (
+              <div key={ms.seconds}
+                className={`ms-marker ${hit ? 'ms-hit' : ''}`}
+                style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
+                <div className="ms-icon">{ms.icon}</div>
+                <div className="ms-label">{ms.label}</div>
+                {hit && <div className="ms-sparkle" />}
+              </div>
+            );
+          })}
+
+          {/* Mascot on the path */}
+          <div className="mascot-on-path"
+            style={{ left: `${mascotPos.x}%`, top: `${mascotPos.y}%` }}>
+            <LoafyMascot expression={expression} running={running} onTap={handleMascotTap} />
           </div>
         </div>
       </div>
 
-      {/* ══════ LOAFY MASCOT (real PNG + GSAP) ══════ */}
-      <div className="mascot-layer">
-        <LoafyMascot expression={expression} running={running} onTap={handleMascotTap} />
-      </div>
-
-      {/* ══════ EVOLVE FLASH ══════ */}
-      {evolveFlash && <div className="evolve-overlay" />}
-
-      {/* ══════ UI OVERLAY ══════ */}
+      {/* Fixed UI overlay */}
       <div className="ui-overlay">
-        {/* Top bar */}
         <div className="top-bar">
-          <div className="px-timer-box">
-            <div className={`px-status-dot ${running ? 'active' : ''}`} />
-            <span className="px-timer-text">{fmt(seconds)}</span>
+          <div className="ui-timer">
+            <div className={`status-dot ${running ? 'active' : ''}`} />
+            <span>{fmt(seconds)}</span>
           </div>
-          {/* Tamagotchi device as UI badge */}
-          <div className="tama-badge">
-            <img src={mascotBase} alt="Tama device" className="tama-img" draggable={false} />
+          <div className="ui-tama">
+            <img src={mascotBase} alt="Tama" className="tama-img" draggable={false} />
           </div>
-          <div className="px-progress-pill">
-            <span className="px-progress-text">{Math.floor(progress * 100)}%</span>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="evo-bar-wrap">
-          <div className="evo-bar">
-            <div className="evo-fill" style={{ width: `${progress * 100}%` }} />
-            {MILESTONES.map((ms, i) => (
-              <div key={i} className={`evo-marker ${triggeredMs.has(ms.seconds) ? 'reached' : ''}`}
-                style={{ left: `${(ms.seconds / SESSION_GOAL) * 100}%` }}>
-                <div className="evo-marker-dot" />
-              </div>
-            ))}
+          <div className="ui-remaining">
+            {remaining > 0 ? `-${fmt(remaining)}` : 'DONE!'}
           </div>
         </div>
 
-        {/* Dialogue box */}
-        <div className={`px-dialogue ${dialogue.visible ? 'show' : 'hide'}`}>
-          <div className="px-dialogue-inner">
-            {dialogue.speaker && <div className="px-dialogue-speaker">{dialogue.speaker}</div>}
-            <div className="px-dialogue-text">{dialogue.text}</div>
-            <div className="px-dialogue-triangle" />
+        <div className="ui-progress-bar">
+          <div className="ui-progress-fill" style={{ width: `${progress * 100}%` }} />
+        </div>
+
+        <div className={`dialogue-box ${dialogue.visible ? 'show' : 'hide'}`}>
+          <div className="dialogue-inner">
+            {dialogue.speaker && <div className="dialogue-speaker">{dialogue.speaker}</div>}
+            <div className="dialogue-text">{dialogue.text}</div>
           </div>
         </div>
 
-        {/* Bottom controls */}
         <div className="bottom-bar">
-          <div className="px-milestone-row">
-            {MILESTONES.map(ms => (
-              <div key={ms.seconds} className={`px-ms ${triggeredMs.has(ms.seconds) ? 'lit' : ''}`}>
-                <span className="px-ms-icon">{ms.icon}</span>
-                <span className="px-ms-label">{ms.label}</span>
-              </div>
-            ))}
-          </div>
-          <div className="px-controls">
-            {!running ? (
-              <button className="px-btn px-btn-start" onClick={start}>
-                {seconds > 0 ? '► Continue' : '► Start Walk'}
-              </button>
-            ) : (
-              <button className="px-btn px-btn-stop" onClick={stop}>
-                ▐▐ Rest
-              </button>
-            )}
-            {!running && seconds > 0 && (
-              <button className="px-btn px-btn-reset" onClick={reset}>
-                ↺ New
-              </button>
-            )}
-          </div>
+          {!running ? (
+            <button className="ctrl-btn ctrl-btn-start" onClick={start}>
+              &#9654; {seconds > 0 ? 'Continue' : 'Start Walk'}
+            </button>
+          ) : (
+            <button className="ctrl-btn ctrl-btn-stop" onClick={stop}>
+              &#9612;&#9612; Rest
+            </button>
+          )}
+          {!running && seconds > 0 && (
+            <button className="ctrl-btn ctrl-btn-reset" onClick={reset}>
+              &#8634; New
+            </button>
+          )}
         </div>
       </div>
+
+      {evolveFlash && <div className="evolve-flash" />}
     </div>
   );
 }
@@ -566,7 +625,7 @@ const cssText = `
 @import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap');
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #root { height: 100%; overflow: hidden; background: ${C.skyTop}; }
+html, body, #root { height: 100%; overflow: hidden; }
 
 .app {
   position: fixed; inset: 0;
@@ -574,224 +633,239 @@ html, body, #root { height: 100%; overflow: hidden; background: ${C.skyTop}; }
   overflow: hidden; user-select: none;
   -webkit-user-select: none;
   image-rendering: pixelated;
+  background: ${C.grassMid};
 }
 
-/* ═══════════ SKY ═══════════ */
-.sky {
+/* ═══════════ MAP VIEWPORT ═══════════ */
+.map-viewport {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, ${C.skyTop} 0%, ${C.skyMid} 45%, ${C.skyBot} 100%);
+  overflow: hidden;
 }
-.px-stars { position: absolute; inset: 0; }
-.px-star {
+.adventure-map {
   position: absolute;
-  background: ${C.star};
-  animation: pxTwinkle 3s steps(2) infinite;
+  left: 0; right: 0;
+  height: ${MAP_H}px;
+  top: 0;
+  transition: transform 1s ease-out;
+  will-change: transform;
 }
-@keyframes pxTwinkle {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 0.9; }
-}
-
-.px-moon {
-  position: absolute; top: 8%; right: 14%;
-  width: 32px; height: 32px;
-  background: ${C.moon};
-  border-radius: 50%;
-  box-shadow: 0 0 12px rgba(245,240,216,0.4);
-}
-.px-moon-dark {
-  position: absolute; top: -4px; right: -4px;
-  width: 26px; height: 26px;
-  background: ${C.skyTop};
-  border-radius: 50%;
-}
-
-.px-clouds { position: absolute; bottom: 30%; left: 0; right: 0; height: 60px; overflow: hidden; }
-.px-cloud {
-  position: absolute; background: rgba(255,255,255,0.25);
-  border-radius: 2px; height: 8px;
-}
-.px-cloud-1 { width: 48px; top: 10px; animation: cloudSlide 50s linear infinite; }
-.px-cloud-2 { width: 36px; top: 28px; animation: cloudSlide 38s linear infinite; animation-delay: -15s; }
-.px-cloud-3 { width: 56px; top: 6px; animation: cloudSlide 65s linear infinite; animation-delay: -30s; }
-.paused .px-cloud { animation-play-state: paused; }
-.running .px-cloud { animation-play-state: running; }
-@keyframes cloudSlide {
-  0% { transform: translateX(110vw); }
-  100% { transform: translateX(-80px); }
-}
-
-/* ═══════════ HILLS ═══════════ */
-.hills-far {
-  position: absolute; bottom: 34%; left: 0; right: 0; height: 80px; overflow: hidden;
-}
-.hills-far-strip {
-  position: absolute; bottom: 0; left: 0; width: 200%; height: 100%;
-  background:
-    radial-gradient(ellipse 100px 55px at 8% 95%, ${C.hillFar} 70%, transparent 71%),
-    radial-gradient(ellipse 140px 65px at 28% 92%, ${C.hillFar} 70%, transparent 71%),
-    radial-gradient(ellipse 90px 50px at 50% 96%, ${C.hillFar} 70%, transparent 71%),
-    radial-gradient(ellipse 130px 60px at 70% 93%, ${C.hillFar} 70%, transparent 71%),
-    radial-gradient(ellipse 110px 55px at 92% 94%, ${C.hillFar} 70%, transparent 71%);
-  animation: scrollHillsFar 40s linear infinite;
-}
-.paused .hills-far-strip { animation-play-state: paused; }
-.running .hills-far-strip { animation-play-state: running; }
-@keyframes scrollHillsFar { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-.hills-near {
-  position: absolute; bottom: 30%; left: 0; right: 0; height: 70px; overflow: hidden;
-}
-.hills-near-strip {
-  position: absolute; bottom: 0; left: 0; width: 200%; height: 100%;
-  background:
-    radial-gradient(ellipse 80px 45px at 5% 96%, ${C.hillNear} 70%, transparent 71%),
-    radial-gradient(ellipse 120px 55px at 22% 93%, ${C.hillNear} 70%, transparent 71%),
-    radial-gradient(ellipse 70px 40px at 42% 97%, ${C.hillNear} 70%, transparent 71%),
-    radial-gradient(ellipse 110px 50px at 60% 94%, ${C.hillNear} 70%, transparent 71%),
-    radial-gradient(ellipse 90px 48px at 80% 95%, ${C.hillNear} 70%, transparent 71%),
-    radial-gradient(ellipse 100px 52px at 96% 93%, ${C.hillNear} 70%, transparent 71%);
-  animation: scrollHillsNear 25s linear infinite;
-}
-.paused .hills-near-strip { animation-play-state: paused; }
-.running .hills-near-strip { animation-play-state: running; }
-@keyframes scrollHillsNear { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-/* ═══════════ GROUND ═══════════ */
-.ground-layer {
-  position: absolute; bottom: 0; left: 0; right: 0; height: 32%;
-  z-index: 3; background: ${C.grass};
-}
-.grass-scroll { position: absolute; inset: 0; overflow: hidden; }
-.grass-texture {
-  position: absolute; top: 0; left: 0; width: 200%; height: 100%;
-  background: repeating-linear-gradient(90deg,
-    ${C.grass} 0px, ${C.grass} 8px, ${C.grassDark} 8px, ${C.grassDark} 10px);
-  animation: scrollGrass 5s linear infinite;
-}
-.paused .grass-texture { animation-play-state: paused; }
-.running .grass-texture { animation-play-state: running; }
-@keyframes scrollGrass { 0% { transform: translateX(0); } 100% { transform: translateX(-20px); } }
-
-.scenery-scroll {
-  position: absolute; top: 0; left: 0; right: 0; height: 40%;
-  overflow: hidden; z-index: 1;
-}
-.scenery-bottom-scroll {
-  position: absolute; bottom: 0; left: 0; right: 0; height: 26%;
-  overflow: hidden; z-index: 1;
-}
-.scenery-strip {
-  position: relative; width: 200%; height: 100%;
-  animation: scrollScenery 12s linear infinite;
-}
-.paused .scenery-strip { animation-play-state: paused; }
-.running .scenery-strip { animation-play-state: running; }
-@keyframes scrollScenery { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-.px-flower { position: absolute; width: 6px; height: 6px; border-radius: 1px; }
-.px-flower::after {
-  content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%);
-  width: 2px; height: 5px; background: #5a8a3a;
-}
-.px-fl-pink { background: ${C.flowerPink}; box-shadow: 0 -3px 0 ${C.flowerPink}, 3px 0 0 ${C.flowerPink}, -3px 0 0 ${C.flowerPink}, 0 3px 0 ${C.flowerPink}; }
-.px-fl-blue { background: ${C.flowerBlue}; box-shadow: 0 -3px 0 ${C.flowerBlue}, 3px 0 0 ${C.flowerBlue}, -3px 0 0 ${C.flowerBlue}, 0 3px 0 ${C.flowerBlue}; }
-.px-fl-yellow { background: ${C.flowerYellow}; box-shadow: 0 -3px 0 ${C.flowerYellow}, 3px 0 0 ${C.flowerYellow}, -3px 0 0 ${C.flowerYellow}, 0 3px 0 ${C.flowerYellow}; }
-
-.px-mushroom {
-  position: absolute; width: 10px; height: 6px;
-  background: ${C.mushroomCap}; border-radius: 5px 5px 0 0;
-}
-.px-mushroom::after {
-  content: ''; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%);
-  width: 6px; height: 4px; background: ${C.mushroom}; border-radius: 0 0 2px 2px;
-}
-.px-mushroom::before {
-  content: ''; position: absolute; top: 1px; left: 3px;
-  width: 2px; height: 2px; background: rgba(255,255,255,0.6);
-  border-radius: 50%; box-shadow: 4px 1px 0 rgba(255,255,255,0.4);
-}
-
-.px-grass-tuft { position: absolute; width: 2px; height: 6px; background: #4a7a38; }
-.px-grass-tuft::before {
-  content: ''; position: absolute; top: 0; left: -3px;
-  width: 2px; height: 5px; background: #5a8a42; transform: rotate(-10deg);
-}
-.px-grass-tuft::after {
-  content: ''; position: absolute; top: 0; right: -3px;
-  width: 2px; height: 4px; background: #5a8a42; transform: rotate(12deg);
-}
-
-.path-area { position: absolute; top: 38%; left: 0; right: 0; height: 26%; z-index: 2; }
-.path-scroll { position: absolute; inset: 0; overflow: hidden; }
-.path-texture {
-  position: absolute; top: 0; left: 0; width: 200%; height: 100%;
+.map-bg {
+  position: absolute; inset: 0;
   background: linear-gradient(180deg,
-    ${C.pathEdge} 0%, ${C.path} 12%, ${C.path} 50%, ${C.pathDark} 88%, ${C.pathEdge} 100%);
-  animation: scrollPath 3.5s linear infinite;
+    ${C.skyBlue} 0%,
+    ${C.skyLight} 6%,
+    ${C.grassLight} 12%,
+    ${C.grassMid} 50%,
+    ${C.grassDark} 100%
+  );
 }
-.paused .path-texture { animation-play-state: paused; }
-.running .path-texture { animation-play-state: running; }
-@keyframes scrollPath { 0% { transform: translateX(0); } 100% { transform: translateX(-80px); } }
 
-.path-dashes-scroll { position: absolute; top: 48%; left: 0; right: 0; height: 3px; overflow: hidden; }
-.path-dashes {
-  position: absolute; top: 0; left: 0; width: 200%; height: 100%;
-  background: repeating-linear-gradient(90deg,
-    rgba(255,255,255,0.18) 0px, rgba(255,255,255,0.18) 10px,
-    transparent 10px, transparent 22px);
-  animation: scrollDashes 2s linear infinite;
-}
-.paused .path-dashes { animation-play-state: paused; }
-.running .path-dashes { animation-play-state: running; }
-@keyframes scrollDashes { 0% { transform: translateX(0); } 100% { transform: translateX(-22px); } }
-
-/* ═══════════ MASCOT LAYER (real PNG assets) ═══════════ */
-.mascot-layer {
+/* Clouds */
+.map-cloud {
   position: absolute;
-  bottom: calc(32% + 32% * 0.02);
-  left: 50%; transform: translateX(-50%);
-  z-index: 6;
+  background: rgba(255,255,255,0.75);
+  border-radius: 4px;
+  height: 14px;
+  z-index: 1;
+}
+.mc-1 { width: 64px; top: 1.5%; left: 12%; }
+.mc-2 { width: 84px; top: 2.8%; right: 18%; }
+.mc-3 { width: 48px; top: 4.2%; left: 52%; }
+
+/* SVG path */
+.path-svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 2;
+  pointer-events: none;
 }
 
+/* ═══════════ DECORATIONS ═══════════ */
+.deco {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+/* Tree */
+.deco-tree { width: 30px; height: 44px; }
+.deco-tree::before {
+  content: '';
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 8px; height: 16px;
+  background: ${C.treeTrunk};
+  border-radius: 1px;
+}
+.deco-tree::after {
+  content: '';
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 15px solid transparent;
+  border-right: 15px solid transparent;
+  border-bottom: 28px solid ${C.treeLeaf};
+  filter: drop-shadow(0 -2px 0 ${C.treeLeafLight});
+}
+
+/* Flowers */
+.deco-fl-p, .deco-fl-b, .deco-fl-y {
+  width: 8px; height: 8px;
+  border-radius: 2px;
+}
+.deco-fl-p::after, .deco-fl-b::after, .deco-fl-y::after {
+  content: '';
+  position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+  width: 2px; height: 6px;
+  background: #5a8a3a;
+}
+.deco-fl-p { background: ${C.flowerPink}; box-shadow: 0 -3px 0 ${C.flowerPink}, 3px 0 0 ${C.flowerPink}, -3px 0 0 ${C.flowerPink}, 0 3px 0 ${C.flowerPink}; }
+.deco-fl-b { background: ${C.flowerBlue}; box-shadow: 0 -3px 0 ${C.flowerBlue}, 3px 0 0 ${C.flowerBlue}, -3px 0 0 ${C.flowerBlue}, 0 3px 0 ${C.flowerBlue}; }
+.deco-fl-y { background: ${C.flowerYellow}; box-shadow: 0 -3px 0 ${C.flowerYellow}, 3px 0 0 ${C.flowerYellow}, -3px 0 0 ${C.flowerYellow}, 0 3px 0 ${C.flowerYellow}; }
+
+/* Mushroom */
+.deco-shr { width: 14px; height: 12px; }
+.deco-shr::before {
+  content: '';
+  position: absolute; top: 0; left: 0;
+  width: 14px; height: 8px;
+  background: ${C.mushroomCap};
+  border-radius: 7px 7px 0 0;
+}
+.deco-shr::after {
+  content: '';
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 6px; height: 5px;
+  background: ${C.mushroom};
+  border-radius: 0 0 3px 3px;
+}
+
+/* Bush */
+.deco-bush { width: 26px; height: 16px; }
+.deco-bush::before {
+  content: '';
+  position: absolute; bottom: 0; left: 0;
+  width: 26px; height: 16px;
+  background: ${C.bushColor};
+  border-radius: 12px 12px 4px 4px;
+  box-shadow: inset 4px -3px 0 ${C.bushLight};
+}
+
+/* Rock */
+.deco-rock { width: 18px; height: 12px; }
+.deco-rock::before {
+  content: '';
+  position: absolute; bottom: 0; left: 0;
+  width: 18px; height: 12px;
+  background: ${C.rockColor};
+  border-radius: 7px 9px 4px 3px;
+  box-shadow: inset 2px -2px 0 ${C.rockDark};
+}
+
+/* ═══════════ PATH MARKERS ═══════════ */
+.path-marker {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, -100%);
+  font-size: 11px;
+  color: ${C.uiText};
+  background: ${C.uiBg};
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: 2px solid ${C.dialogBorder};
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.12);
+}
+.path-start { transform: translate(-50%, 20px); }
+
+/* Milestone markers */
+.ms-marker {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column;
+  align-items: center; gap: 3px;
+  pointer-events: none;
+  transition: filter 0.5s;
+}
+.ms-marker:not(.ms-hit) {
+  filter: grayscale(0.6) brightness(0.7);
+}
+.ms-icon {
+  font-size: 22px;
+  background: ${C.uiBg};
+  border: 3px solid ${C.dialogBorder};
+  border-radius: 50%;
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.12);
+}
+.ms-hit .ms-icon {
+  border-color: #f0e080;
+  box-shadow: 0 0 12px rgba(240,224,128,0.5);
+}
+.ms-label {
+  font-size: 8px;
+  color: ${C.uiText};
+  background: rgba(60,48,36,0.75);
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.ms-sparkle {
+  position: absolute;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(240,224,128,0.5) 0%, transparent 70%);
+  animation: sparkPop 1.5s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes sparkPop {
+  0% { transform: scale(0.3); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* ═══════════ MASCOT ON PATH ═══════════ */
+.mascot-on-path {
+  position: absolute;
+  z-index: 8;
+  transform: translate(-50%, -90%);
+  transition: left 1.5s ease-out, top 1.5s ease-out;
+}
 .loafy-walk-wrapper {
   position: relative;
   display: flex; flex-direction: column; align-items: center;
   will-change: transform;
 }
-
 .mascot-container {
   position: relative;
-  width: 80px; height: 80px;
+  width: 130px; height: 130px;
   cursor: pointer;
   display: flex; align-items: flex-end; justify-content: center;
 }
-
 .mascot-char {
-  width: 72px; height: auto;
+  width: 120px; height: auto;
   image-rendering: pixelated;
   will-change: transform, opacity;
   transform-origin: center bottom;
-  filter: drop-shadow(0 2px 1px rgba(0,0,0,0.15));
+  filter: drop-shadow(0 3px 2px rgba(0,0,0,0.2));
   position: relative; z-index: 2;
 }
-
 .mascot-shadow {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-  width: 48px; height: 8px;
-  background: rgba(0,0,0,0.12);
+  width: 70px; height: 12px;
+  background: rgba(0,0,0,0.15);
   border-radius: 50%;
   z-index: 1;
 }
 
-/* WOOF bubble (happy expression) */
+/* WOOF bubble */
 .mascot-woof-bubble {
-  position: absolute; top: -6px; right: -18px;
+  position: absolute; top: -8px; right: -22px;
   background: #fff;
   border: 3px solid #5a4a3a;
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 8px; font-weight: 700;
+  padding: 3px 8px;
+  font-size: 11px; font-weight: 700;
   color: #5a4a3a;
   z-index: 10;
   animation: woofPop 0.3s ease-out;
@@ -799,25 +873,25 @@ html, body, #root { height: 100%; overflow: hidden; background: ${C.skyTop}; }
 }
 .mascot-woof-bubble::after {
   content: '';
-  position: absolute; bottom: -6px; left: 10px;
+  position: absolute; bottom: -7px; left: 12px;
   width: 0; height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 6px solid #5a4a3a;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid #5a4a3a;
 }
 @keyframes woofPop {
   0% { opacity: 0; transform: scale(0.5) translateY(4px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Sniff particles (smell expression) */
+/* Sniff particles */
 .mascot-sniff-particles {
-  position: absolute; top: 10px; right: -12px;
-  display: flex; flex-direction: column; gap: 2px;
+  position: absolute; top: 14px; right: -16px;
+  display: flex; flex-direction: column; gap: 3px;
   z-index: 10;
 }
 .sniff-p {
-  font-size: 10px; color: ${C.accent};
+  font-size: 13px; color: ${C.accent};
   opacity: 0;
   animation: sniffFloat 1.5s ease-out infinite;
 }
@@ -827,58 +901,32 @@ html, body, #root { height: 100%; overflow: hidden; background: ${C.skyTop}; }
 @keyframes sniffFloat {
   0% { opacity: 0; transform: translateX(0) translateY(0); }
   30% { opacity: 0.8; }
-  100% { opacity: 0; transform: translateX(12px) translateY(-10px); }
-}
-
-/* Blink overlay (covers eyes area briefly) */
-.mascot-blink-overlay {
-  position: absolute;
-  top: 28%; left: 20%; right: 20%; height: 8px;
-  z-index: 3;
-  pointer-events: none;
+  100% { opacity: 0; transform: translateX(16px) translateY(-14px); }
 }
 
 /* Dust when walking */
 .mascot-dust {
-  position: absolute; bottom: 2px; right: -6px;
-  width: 20px; height: 14px; pointer-events: none;
+  position: absolute; bottom: 4px; right: -10px;
+  width: 26px; height: 18px; pointer-events: none;
 }
 .m-dust {
-  position: absolute; width: 4px; height: 4px;
-  background: ${C.pathDark}; border-radius: 1px; opacity: 0.4;
+  position: absolute; width: 5px; height: 5px;
+  background: ${C.pathFill}; border-radius: 1px; opacity: 0.5;
 }
-.m-dust-1 {
-  bottom: 2px; right: 0;
-  animation: mDustGo 0.7s steps(3) infinite;
-}
-.m-dust-2 {
-  bottom: 5px; right: 5px;
-  animation: mDustGo 0.7s steps(3) infinite 0.25s;
-}
+.m-dust-1 { bottom: 2px; right: 0; animation: mDustGo 0.7s steps(3) infinite; }
+.m-dust-2 { bottom: 7px; right: 7px; animation: mDustGo 0.7s steps(3) infinite 0.25s; }
 @keyframes mDustGo {
-  0% { opacity: 0.4; transform: translate(0, 0); }
-  100% { opacity: 0; transform: translate(8px, -8px); }
+  0% { opacity: 0.5; transform: translate(0, 0); }
+  100% { opacity: 0; transform: translate(10px, -10px); }
 }
 
-/* ═══════════ EVOLVE FLASH ═══════════ */
-.evolve-overlay {
-  position: fixed; inset: 0; z-index: 50;
-  background: rgba(255,255,240,0.6);
-  animation: evoFlash 2s steps(4) forwards;
-  pointer-events: none;
-}
-@keyframes evoFlash {
-  0% { opacity: 1; }
-  30% { opacity: 0.8; }
-  100% { opacity: 0; }
-}
-
-/* ═══════════ UI OVERLAY ═══════════ */
+/* ═══════════ UI OVERLAY (fixed on screen) ═══════════ */
 .ui-overlay {
-  position: absolute; inset: 0;
+  position: fixed; inset: 0;
   display: flex; flex-direction: column;
   justify-content: space-between;
-  z-index: 10; pointer-events: none;
+  z-index: 20;
+  pointer-events: none;
 }
 .ui-overlay > * { pointer-events: auto; }
 
@@ -886,110 +934,84 @@ html, body, #root { height: 100%; overflow: hidden; background: ${C.skyTop}; }
   display: flex; align-items: flex-start; justify-content: space-between;
   padding: 10px 12px 0;
 }
-
-.px-timer-box {
+.ui-timer {
   display: flex; align-items: center; gap: 6px;
   background: ${C.uiBg};
   border: 3px solid ${C.dialogBorder};
   border-radius: 4px;
-  padding: 5px 10px;
+  padding: 6px 12px;
+  font-size: 15px; font-weight: 700;
+  color: ${C.uiText};
+  font-variant-numeric: tabular-nums;
 }
-.px-status-dot {
-  width: 6px; height: 6px; background: #888;
-  border-radius: 1px; transition: background 0.3s;
+.status-dot {
+  width: 7px; height: 7px; background: #888;
+  border-radius: 2px; transition: background 0.3s;
 }
-.px-status-dot.active {
+.status-dot.active {
   background: #80e890;
-  box-shadow: 0 0 4px rgba(128,232,144,0.6);
+  box-shadow: 0 0 5px rgba(128,232,144,0.6);
 }
-.px-timer-text {
-  font-size: 14px; font-weight: 700;
-  color: ${C.uiText}; font-variant-numeric: tabular-nums;
-}
-
-/* Tamagotchi device badge */
-.tama-badge {
-  width: 44px; height: 44px;
+.ui-tama {
+  width: 46px; height: 46px;
   border-radius: 6px;
   overflow: hidden;
   border: 3px solid ${C.dialogBorder};
   background: ${C.uiBg};
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 2px 2px 0 rgba(106,88,120,0.2);
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.15);
 }
 .tama-img {
-  width: 38px; height: 38px;
+  width: 40px; height: 40px;
   object-fit: cover;
   image-rendering: pixelated;
 }
-
-.px-progress-pill {
+.ui-remaining {
   background: ${C.uiBg};
   border: 3px solid ${C.dialogBorder};
   border-radius: 4px;
-  padding: 5px 10px;
-}
-.px-progress-text {
+  padding: 6px 12px;
   font-size: 12px; font-weight: 700;
   color: ${C.accent};
 }
 
 /* Progress bar */
-.evo-bar-wrap {
-  position: relative;
+.ui-progress-bar {
   margin: 6px 14px 0;
-  height: 16px;
-}
-.evo-bar {
-  position: relative; height: 8px;
-  background: rgba(90,72,106,0.5);
+  height: 8px;
+  background: rgba(60,48,36,0.5);
   border: 2px solid ${C.dialogBorder};
-  border-radius: 2px; overflow: visible;
+  border-radius: 2px;
+  overflow: hidden;
+  pointer-events: none;
 }
-.evo-fill {
+.ui-progress-fill {
   height: 100%;
   background: linear-gradient(90deg, ${C.accent}, ${C.accentAlt});
-  border-radius: 1px;
   transition: width 1s ease;
-}
-.evo-marker {
-  position: absolute; top: -3px;
-  width: 8px; height: 14px;
-  transform: translateX(-50%);
-  display: flex; align-items: center; justify-content: center;
-}
-.evo-marker-dot {
-  width: 6px; height: 6px;
-  background: #888;
-  border: 2px solid ${C.dialogBorder};
   border-radius: 1px;
-  transition: background 0.5s;
-}
-.evo-marker.reached .evo-marker-dot {
-  background: ${C.flowerYellow};
-  box-shadow: 0 0 4px rgba(240,224,128,0.5);
 }
 
-/* ═══════════ PIXEL DIALOGUE BOX ═══════════ */
-.px-dialogue {
+/* Dialogue box */
+.dialogue-box {
   position: absolute;
-  bottom: 130px;
-  left: 8px; right: 8px;
-  z-index: 15;
+  bottom: 90px;
+  left: 10px; right: 10px;
+  z-index: 25;
   transition: opacity 0.3s, transform 0.3s;
   pointer-events: none;
 }
-.px-dialogue.show { opacity: 1; transform: translateY(0); }
-.px-dialogue.hide { opacity: 0; transform: translateY(8px); }
-.px-dialogue-inner {
+.dialogue-box.show { opacity: 1; transform: translateY(0); }
+.dialogue-box.hide { opacity: 0; transform: translateY(8px); }
+.dialogue-inner {
   position: relative;
   background: ${C.dialogBg};
   border: 4px solid ${C.dialogBorder};
   border-radius: 4px;
   padding: 10px 14px;
-  box-shadow: 4px 4px 0 rgba(106,88,120,0.2);
+  box-shadow: 4px 4px 0 rgba(0,0,0,0.12);
 }
-.px-dialogue-speaker {
+.dialogue-speaker {
   position: absolute;
   top: -12px; left: 10px;
   background: ${C.dialogBorder};
@@ -997,86 +1019,185 @@ html, body, #root { height: 100%; overflow: hidden; background: ${C.skyTop}; }
   font-size: 9px; font-weight: 700;
   padding: 2px 8px;
   border-radius: 3px 3px 0 0;
-  letter-spacing: 0.05em;
 }
-.px-dialogue-text {
+.dialogue-text {
   font-size: 12px;
   color: ${C.dialogText};
   line-height: 1.6;
-  letter-spacing: 0.02em;
-}
-.px-dialogue-triangle {
-  position: absolute;
-  bottom: 6px; right: 10px;
-  width: 0; height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 6px solid ${C.dialogBorder};
-  animation: pxTriPulse 1.2s steps(2) infinite;
-}
-@keyframes pxTriPulse {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(2px); }
 }
 
-/* Bottom bar */
+/* Bottom controls */
 .bottom-bar {
-  padding: 0 12px 14px;
-  display: flex; flex-direction: column;
-  align-items: center; gap: 8px;
+  padding: 0 12px 16px;
+  display: flex; justify-content: center; gap: 8px;
 }
-.px-milestone-row { display: flex; gap: 8px; }
-.px-ms {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  background: rgba(90,72,106,0.6);
-  border: 2px solid ${C.dialogBorder};
-  border-radius: 3px; padding: 4px 8px;
-  filter: grayscale(0.7) brightness(0.6);
-  transition: all 0.5s;
-}
-.px-ms.lit {
-  filter: grayscale(0) brightness(1);
-  border-color: ${C.flowerYellow};
-  box-shadow: 0 0 6px rgba(240,224,128,0.3);
-}
-.px-ms-icon { font-size: 14px; }
-.px-ms-label { font-size: 7px; color: ${C.uiText}; opacity: 0.7; }
-
-.px-controls { display: flex; gap: 6px; }
-.px-btn {
-  padding: 8px 20px;
+.ctrl-btn {
+  padding: 10px 24px;
   border: 3px solid ${C.dialogBorder};
   border-radius: 4px;
   font-family: 'Silkscreen', monospace;
-  font-size: 12px; font-weight: 700;
-  cursor: pointer; letter-spacing: 0.02em;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 rgba(0,0,0,0.18);
   transition: transform 0.1s;
-  box-shadow: 3px 3px 0 rgba(106,88,120,0.25);
 }
-.px-btn:active {
+.ctrl-btn:active {
   transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 rgba(106,88,120,0.25);
+  box-shadow: 1px 1px 0 rgba(0,0,0,0.18);
 }
-.px-btn-start {
+.ctrl-btn-start {
   background: linear-gradient(180deg, ${C.accent}, #d08898);
   color: #fff; border-color: #a06878;
 }
-.px-btn-stop {
+.ctrl-btn-stop {
   background: linear-gradient(180deg, ${C.accentAlt}, #88b0c8);
   color: #fff; border-color: #6890a8;
 }
-.px-btn-reset {
-  background: rgba(90,72,106,0.6);
-  color: ${C.uiText}; font-size: 10px; padding: 8px 14px;
+.ctrl-btn-reset {
+  background: rgba(60,48,36,0.6);
+  color: ${C.uiText}; font-size: 11px; padding: 10px 16px;
 }
 
+/* ═══════════ EVOLVE FLASH ═══════════ */
+.evolve-flash {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(255,255,240,0.5);
+  animation: evoFlash 2s steps(4) forwards;
+  pointer-events: none;
+}
+@keyframes evoFlash {
+  0% { opacity: 1; }
+  30% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+/* ═══════════ TIME PICKER SCREEN ═══════════ */
+.picker-bg {
+  position: fixed; inset: 0;
+  background: linear-gradient(180deg, ${C.skyBlue} 0%, ${C.grassLight} 45%, ${C.grassMid} 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+.picker-panel {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px; padding: 24px;
+  max-width: 340px; width: 90%;
+}
+.picker-mascot {
+  width: 160px; height: 160px;
+  display: flex; align-items: center; justify-content: center;
+}
+.picker-mascot-img {
+  width: 150px; height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 4px 4px rgba(0,0,0,0.2));
+  animation: pickerBob 2s ease-in-out infinite;
+}
+@keyframes pickerBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.picker-title {
+  font-size: 16px; font-weight: 700;
+  color: #3a2a1a;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.3);
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px; width: 100%;
+}
+.picker-btn {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 12px 4px;
+  background: ${C.uiBg};
+  border: 3px solid ${C.dialogBorder};
+  border-radius: 6px;
+  font-family: 'Silkscreen', monospace;
+  font-size: 16px; font-weight: 700;
+  color: ${C.uiText};
+  cursor: pointer;
+  box-shadow: 3px 3px 0 rgba(0,0,0,0.15);
+  transition: transform 0.1s;
+}
+.picker-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(0,0,0,0.15);
+}
+.picker-btn-unit {
+  font-size: 8px; opacity: 0.6; margin-top: 2px;
+}
+.picker-custom {
+  display: flex; gap: 8px; width: 100%;
+}
+.picker-input {
+  flex: 1;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.9);
+  border: 3px solid ${C.dialogBorder};
+  border-radius: 4px;
+  font-family: 'Silkscreen', monospace;
+  font-size: 14px;
+  color: ${C.dialogText};
+  outline: none;
+}
+.picker-input::placeholder { color: #aaa; font-size: 11px; }
+.picker-btn-go { padding: 10px 18px; font-size: 14px; }
+
+/* ═══════════ GOAL REACHED SCREEN ═══════════ */
+.goal-bg {
+  position: fixed; inset: 0;
+  background: linear-gradient(180deg, #f5e8c0 0%, ${C.accent} 50%, ${C.grassLight} 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+.goal-panel {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px; padding: 24px;
+}
+.goal-stars-row {
+  display: flex; gap: 8px;
+}
+.goal-star {
+  font-size: 30px;
+  color: #f0d060;
+  animation: starBounce 0.6s ease-out forwards;
+  opacity: 0;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+@keyframes starBounce {
+  0% { opacity: 0; transform: scale(0) translateY(20px); }
+  60% { opacity: 1; transform: scale(1.3) translateY(-5px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.goal-title {
+  font-size: 22px; font-weight: 700;
+  color: #3a2a1a;
+  text-shadow: 0 2px 0 rgba(255,255,255,0.4);
+}
+.goal-time {
+  font-size: 38px; font-weight: 700;
+  color: #5a4030;
+  font-variant-numeric: tabular-nums;
+}
+.goal-sub {
+  font-size: 12px;
+  color: #5a4a3a; opacity: 0.8;
+}
+.goal-mascot { margin: 8px 0; }
+
+/* ═══════════ RESPONSIVE ═══════════ */
 @media (max-width: 400px) {
-  .px-timer-text { font-size: 12px; }
-  .px-dialogue-text { font-size: 11px; }
-  .px-btn { font-size: 11px; padding: 7px 16px; }
-  .mascot-char { width: 60px; }
-  .mascot-container { width: 68px; height: 68px; }
-  .tama-badge { width: 38px; height: 38px; }
-  .tama-img { width: 32px; height: 32px; }
+  .ui-timer { font-size: 13px; padding: 5px 10px; }
+  .ui-remaining { font-size: 10px; padding: 5px 8px; }
+  .dialogue-text { font-size: 11px; }
+  .ctrl-btn { font-size: 12px; padding: 9px 18px; }
+  .mascot-char { width: 100px; }
+  .mascot-container { width: 110px; height: 110px; }
+  .mascot-shadow { width: 58px; height: 10px; }
+  .ui-tama { width: 40px; height: 40px; }
+  .tama-img { width: 34px; height: 34px; }
+  .picker-mascot-img { width: 120px; }
+  .ms-icon { width: 34px; height: 34px; font-size: 18px; }
 }
 `;
